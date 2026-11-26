@@ -23,6 +23,7 @@ Usage:
     python3 main.py [--out PATH] [--self-test]
 """
 import argparse
+import hashlib
 import os
 import sys
 
@@ -93,7 +94,8 @@ def self_test():
     """Verify every contender is gate-clean, all 12 are distinct, the pick
     sits inside the winning size band (62-140 bytes, the one-liner top-10
     range), carries a concrete specific marker (the two named shower
-    settings, 'arctic' and 'lawsuit', quoted in the line), and a
+    settings, 'arctic' and 'lawsuit', quoted in the line), opens with a
+    setup that is separated from its payoff by a semicolon, and a
     round-tripped pick matches byte for byte."""
     bad = [i + 1 for i, c in enumerate(CONTENDERS) if not gate(c)]
     if bad:
@@ -117,6 +119,14 @@ def self_test():
     # stay tight (under 100 chars).
     if not pick.startswith("I asked"):
         print("SELF-TEST FAIL: pick does not open with a setup")
+        return 1
+    # Judge criterion 1: the setup and the payoff must be distinct parts
+    # of the line, separated by the semicolon; the payoff (after it) must
+    # carry the two named settings, so the twist is the payoff itself.
+    setup, _, payoff = pick.partition(";")
+    if not payoff or "'arctic'" not in payoff or "'lawsuit'" not in payoff:
+        print("SELF-TEST FAIL: pick has no setup/payoff break, or its "
+              "payoff does not carry the two named settings")
         return 1
     if len(pick) >= 100:
         print("SELF-TEST FAIL: pick is not tight enough")
@@ -173,12 +183,20 @@ def main():
     with open(args.out, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
     # Read the file back: the entry that ships must be byte-identical to
-    # the picked line, not just what we intended to write.
+    # the picked line, not just what we intended to write. Compare the
+    # text and, independently, the sha256 of the written bytes against
+    # the pick, so a silent encoding change on write cannot slip past.
     with open(args.out, encoding="utf-8", newline="") as fh:
         written = fh.read()
     if written != text:
         print("WRITE-BACK FAIL: /output/entry.txt differs from the pick",
               file=sys.stderr)
+        return 1
+    with open(args.out, "rb") as fh:
+        written_sha = hashlib.sha256(fh.read()).hexdigest()
+    if written_sha != hashlib.sha256(text.encode("utf-8")).hexdigest():
+        print("WRITE-BACK FAIL: /output/entry.txt sha256 differs from "
+              "the pick", file=sys.stderr)
         return 1
     print(f"Wrote {len(text)} chars / {len(text.encode('utf-8'))} bytes "
           f"to {args.out} (read-back verified)")
